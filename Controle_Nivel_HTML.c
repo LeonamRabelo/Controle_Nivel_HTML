@@ -14,19 +14,29 @@
 #include "lwip/pbuf.h"
 #include "lwip/tcp.h"
 #include "lwip/netif.h"
+#include "inc/matriz_leds.h"
 
-#define WIFI_SSID "SSID"             //Alterar para o SSID da rede
-#define WIFI_PASSWORD "SENHA"    //Alterar para a senha da rede
+#define WIFI_SSID "PRF"             //Alterar para o SSID da rede
+#define WIFI_PASSWORD "@hfs0800"    //Alterar para a senha da rede
 
 #define ADC_MIN 800     //Valor do potenciômetro quando tanque vazio
 #define ADC_MAX 4096    //Valor do potenciômetro quando tanque cheio
 //Definição de GPIOs
-#define ADC_NIVEL 0  //ADC do potenciometro
+#define RELE_PIN 0     //Pino do rele
+#define ADC_NIVEL 0     //ADC do potenciometro
 #define I2C_SDA 14      //Pino SDA - Dados
 #define I2C_SCL 15      //Pino SCL - Clock
+#define WS2812_PIN 7    //Pino do WS2812
+#define BUZZER_PIN 21   //Pino do buzzer
+#define BOTAO_A 5       //Pino do botao A
+#define LED_RED 13      //Pino do LED vermelho
+#define LED_GREEN 12    //Pino do LED verde
 #define IS_RGBW false   //Maquina PIO para RGBW
 
 uint16_t adc_nivel = 0;  //Variáveis para armazenar os valores do nivel lido no ADC do potenciometro
+uint volatile numero = 0;      //Variável para inicializar o numero com 0 (WS2812B)
+volatile bool acionar_bomba = false;    //Variável para indicar o modo de monitoramento
+uint buzzer_slice;  //Slice para o buzzer
 
 //Prototipagem
 static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err);
@@ -41,6 +51,26 @@ ssd1306_t ssd;
 void inicializar_componentes(){
     stdio_init_all();
     
+    //Inicializa LED Vermelho
+    gpio_init(LED_RED);
+    gpio_set_dir(LED_RED, GPIO_OUT);
+    gpio_put(LED_RED, 0);
+
+    //Inicializa LED Verde
+    gpio_init(LED_GREEN);
+    gpio_set_dir(LED_GREEN, GPIO_OUT);
+    gpio_put(LED_GREEN, 0);
+
+    //Inicializa rele
+    gpio_init(RELE_PIN);
+    gpio_set_dir(RELE_PIN, GPIO_OUT);
+    gpio_put(RELE_PIN, 0);
+
+    //Inicializa botao A
+    gpio_init(BOTAO_A);
+    gpio_set_dir(BOTAO_A, GPIO_IN);
+    gpio_pull_up(BOTAO_A);
+
     //Inicializa ADC para leitura do ADC do potenciometro
     adc_init();
     adc_gpio_init(ADC_NIVEL);
@@ -59,6 +89,16 @@ void inicializar_componentes(){
     ssd1306_send_data(&ssd);
     ssd1306_fill(&ssd, false);
     ssd1306_send_data(&ssd);
+
+    //Inicializa buzzer
+    gpio_set_function(BUZZER_PIN, GPIO_FUNC_PWM);
+    buzzer_slice = pwm_gpio_to_slice_num(BUZZER_PIN);   //Slice para o buzzer
+    float clkdiv = 125.0f; // Clock divisor
+    uint16_t wrap = (uint16_t)((125000000 / (clkdiv * 1000)) - 1);      //Valor do Wrap
+    pwm_set_clkdiv(buzzer_slice, clkdiv);       //Define o clock
+    pwm_set_wrap(buzzer_slice, wrap);           //Define o wrap
+    pwm_set_gpio_level(BUZZER_PIN, wrap * 0.3f); //Define duty
+    pwm_set_enabled(buzzer_slice, false); //Começa desligado
 }
 
 //WebServer: Início no main()
@@ -133,35 +173,92 @@ uint8_t ler_nivel_percentual(){
     adc_select_input(ADC_NIVEL);
     adc_nivel = adc_read();
 
-    if (adc_nivel <= ADC_MIN) return 0;
-    if (adc_nivel >= ADC_MAX) return 100;
+    if(adc_nivel <= ADC_MIN) return 0;
+    if(adc_nivel >= ADC_MAX) return 100;
 
-    return ((adc_nivel - ADC_MIN) * 100) / (ADC_MAX - ADC_MIN);
+    return((adc_nivel - ADC_MIN) * 100) / (ADC_MAX - ADC_MIN);
 }
 
-// Atualiza o display com dados do nível
-void atualizar_display(uint8_t nivel) {
-    char linha1[32];
-    char linha2[32];
+void atualizar_rgb(uint8_t nivel, uint8_t lim_min){
+    if(nivel <= lim_min){
+        gpio_put(LED_RED, 1);
+        gpio_put(LED_GREEN, 0);
+    }else if (nivel < 50){
+        gpio_put(LED_RED, 1);
+        gpio_put(LED_GREEN, 1);  // Amarelo
+    }else{
+        gpio_put(LED_RED, 0);
+        gpio_put(LED_GREEN, 1);
+    }
+}
 
+
+//Função que atualiza o display
+void atualizar_display(uint8_t nivel, uint8_t lim_min, uint8_t lim_max, bool bomba_ligada){
+    char linha1[32], linha2[32], linha3[32], linha4[32];
     ssd1306_fill(&ssd, false);
 
-    sprintf(linha1, "Nivel: %d%%", nivel);
-    sprintf(linha2, "ADC: %d", adc_nivel);
+    sprintf(linha1, "Controle de Nivel");
+    sprintf(linha2, "Nivel: %d%%", nivel);
+    sprintf(linha3, "Min:%d%% Max:%d%%", lim_min, lim_max);
+    sprintf(linha4, "Bomba: %s", bomba_ligada ? "Ligada" : "Deslig.");
 
-    ssd1306_draw_string(&ssd, linha1, 10, 10);
-    ssd1306_draw_string(&ssd, linha2, 10, 30);
+    ssd1306_draw_string(&ssd, linha1, 10, 0);
+    ssd1306_draw_string(&ssd, linha2, 10, 16);
+    ssd1306_draw_string(&ssd, linha3, 10, 32);
+    ssd1306_draw_string(&ssd, linha4, 10, 48);
 
     ssd1306_send_data(&ssd);
+}
+
+void verificar_buzzer(uint8_t nivel, uint8_t lim_min, uint8_t lim_max) {
+    static absolute_time_t ultimo_alarme = {0};
+
+    if(nivel <= lim_min){
+        for(int i = 0; i < 3; i++){
+            pwm_set_enabled(buzzer_slice, true);
+            sleep_ms(200);
+            pwm_set_enabled(buzzer_slice, false);
+            sleep_ms(200);
+        }
+    }else if(nivel >= lim_max && absolute_time_diff_us(get_absolute_time(), ultimo_alarme) > 5000000){
+        pwm_set_enabled(buzzer_slice, true);
+        sleep_ms(100);
+        pwm_set_enabled(buzzer_slice, false);
+        ultimo_alarme = get_absolute_time();
+    }
+}
+//Debounce do botão (evita leituras falsas)
+bool debounce_botao(uint gpio){
+    static uint32_t ultimo_tempo = 0;
+    uint32_t tempo_atual = to_ms_since_boot(get_absolute_time());
+    //Verifica se o botão foi pressionado e se passaram 200ms
+    if (gpio_get(gpio) == 0 && (tempo_atual - ultimo_tempo) > 200){ //200ms de debounce
+        ultimo_tempo = tempo_atual;
+        return true;
+    }
+    return false;
+}
+
+//Função de interrupção com Debouncing
+void gpio_irq_handler(uint gpio, uint32_t events){
+    uint32_t current_time = to_ms_since_boot(get_absolute_time());
+
+    // Caso o botão A seja pressionado
+    if(gpio == BOTAO_A && debounce_botao(BOTAO_A)){
+    gpio_put(RELE_PIN, !gpio_get(RELE_PIN));
+    }
 }
 
 int main(){
     inicializar_componentes();  //Inicia os componentes
     iniciar_webserver();        //Inicia o webserver
 
+    gpio_set_irq_enabled_with_callback(BOTAO_A, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);
+    
     while(true){
     adc_nivel = ler_nivel_percentual();
-    atualizar_display(adc_nivel);
+    atualizar_display(adc_nivel, 0, 100, true);
     sleep_ms(1000);  // Atualiza a cada 1 segundo
     }
     return 0;

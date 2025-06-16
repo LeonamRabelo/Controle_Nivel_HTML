@@ -21,10 +21,13 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(Controle_Nivel_HTML Controle_Nivel_HTML.c inc/ssd1306.c)
+add_executable(Controle_Nivel_HTML Controle_Nivel_HTML.c inc/ssd1306.c inc/matriz_leds.c)
 
 pico_set_program_name(Controle_Nivel_HTML "Controle_Nivel_HTML")
 pico_set_program_version(Controle_Nivel_HTML "0.1")
+
+# Generate PIO header
+pico_generate_pio_header(Controle_Nivel_HTML ${CMAKE_CURRENT_LIST_DIR}/ws2812.pio)
 
 # Modify the below lines to enable/disable output over UART/USB
 pico_enable_stdio_uart(Controle_Nivel_HTML 0)
