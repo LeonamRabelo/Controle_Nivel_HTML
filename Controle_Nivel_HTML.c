@@ -128,12 +128,41 @@ void tratar_requisicao_http(char *request){
         }
 }
 
+// Função que realiza a leitura e conversão do ADC para nível %
+uint8_t ler_nivel_percentual(){
+    adc_select_input(ADC_NIVEL);
+    adc_nivel = adc_read();
+
+    if (adc_nivel <= ADC_MIN) return 0;
+    if (adc_nivel >= ADC_MAX) return 100;
+
+    return ((adc_nivel - ADC_MIN) * 100) / (ADC_MAX - ADC_MIN);
+}
+
+// Atualiza o display com dados do nível
+void atualizar_display(uint8_t nivel) {
+    char linha1[32];
+    char linha2[32];
+
+    ssd1306_fill(&ssd, false);
+
+    sprintf(linha1, "Nivel: %d%%", nivel);
+    sprintf(linha2, "ADC: %d", adc_nivel);
+
+    ssd1306_draw_string(&ssd, linha1, 10, 10);
+    ssd1306_draw_string(&ssd, linha2, 10, 30);
+
+    ssd1306_send_data(&ssd);
+}
+
 int main(){
     inicializar_componentes();  //Inicia os componentes
     iniciar_webserver();        //Inicia o webserver
 
     while(true){
-     
+    adc_nivel = ler_nivel_percentual();
+    atualizar_display(adc_nivel);
+    sleep_ms(1000);  // Atualiza a cada 1 segundo
     }
     return 0;
 }
