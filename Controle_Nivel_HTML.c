@@ -14,6 +14,7 @@
 #include "lwip/pbuf.h"
 #include "lwip/tcp.h"
 #include "lwip/netif.h"
+#include "ws2812.pio.h"
 #include "inc/matriz_leds.h"
 
 #define WIFI_SSID "PRF"             //Alterar para o SSID da rede
@@ -65,6 +66,12 @@ void inicializar_componentes(){
     gpio_init(RELE_PIN);
     gpio_set_dir(RELE_PIN, GPIO_OUT);
     gpio_put(RELE_PIN, 0);
+
+    //Inicializa o pio
+    PIO pio = pio0;
+    int sm = 0;
+    uint offset = pio_add_program(pio, &ws2812_program);
+    ws2812_program_init(pio, sm, offset, WS2812_PIN, 800000, IS_RGBW);
 
     //Inicializa botao A
     gpio_init(BOTAO_A);
@@ -183,7 +190,7 @@ void atualizar_rgb(uint8_t nivel, uint8_t lim_min){
     if(nivel <= lim_min){
         gpio_put(LED_RED, 1);
         gpio_put(LED_GREEN, 0);
-    }else if (nivel < 50){
+    }else if(nivel < 50){
         gpio_put(LED_RED, 1);
         gpio_put(LED_GREEN, 1);  // Amarelo
     }else{
@@ -243,12 +250,27 @@ bool debounce_botao(uint gpio){
 //Função de interrupção com Debouncing
 void gpio_irq_handler(uint gpio, uint32_t events){
     uint32_t current_time = to_ms_since_boot(get_absolute_time());
-
     // Caso o botão A seja pressionado
     if(gpio == BOTAO_A && debounce_botao(BOTAO_A)){
-    gpio_put(RELE_PIN, !gpio_get(RELE_PIN));
+        acionar_bomba = true;
     }
 }
+
+void atualizar_matriz_leds(uint8_t nivel){
+    int faixa = nivel / 20;
+    if(faixa > 4) faixa = 4;
+
+    uint8_t r = 0, g = 0, b = 0;
+
+    //Definindo cor da barra com base na faixa
+    if (nivel <= 20)        r = 25;  // vermelho
+    else if (nivel <= 40)   r = 13, g = 2;  // laranja
+    else if (nivel <= 60)   r = 25, g = 25;  // amarelo
+    else if (nivel <= 100)   g = 25;  // verde claro
+
+    set_one_led(r, g, b, faixa);
+}
+
 
 int main(){
     inicializar_componentes();  //Inicia os componentes
@@ -256,10 +278,29 @@ int main(){
 
     gpio_set_irq_enabled_with_callback(BOTAO_A, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);
     
+    const uint8_t limite_minimo = 20;
+    const uint8_t limite_maximo = 80;
+    bool bomba_ligada = false;
+
     while(true){
-    adc_nivel = ler_nivel_percentual();
-    atualizar_display(adc_nivel, 0, 100, true);
-    sleep_ms(1000);  // Atualiza a cada 1 segundo
+        uint8_t nivel = ler_nivel_percentual();
+        atualizar_display(nivel, limite_minimo, limite_maximo, bomba_ligada);
+        atualizar_rgb(nivel, limite_minimo);
+        atualizar_matriz_leds(adc_nivel);
+        verificar_buzzer(nivel, limite_minimo, limite_maximo);
+
+        if(acionar_bomba && nivel < limite_maximo){
+            gpio_put(RELE_PIN, 1);
+            bomba_ligada = true;
+            while(ler_nivel_percentual() < limite_maximo){
+                sleep_ms(200);
+            }
+            gpio_put(RELE_PIN, 0);
+            bomba_ligada = false;
+            acionar_bomba = false;
+        }
+
+        sleep_ms(1000);
     }
     return 0;
 }
