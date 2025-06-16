@@ -9,7 +9,6 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Initialise pico_sdk from installed location
 # (note this can come from environment, CMake cache etc)
 
-
 set(PICO_BOARD pico_w CACHE STRING "Board type")
 
 # Pull in Raspberry Pi Pico SDK (must be before project)
@@ -22,7 +21,7 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(Controle_Nivel_HTML Controle_Nivel_HTML.c )
+add_executable(Controle_Nivel_HTML Controle_Nivel_HTML.c inc/ssd1306.c)
 
 pico_set_program_name(Controle_Nivel_HTML "Controle_Nivel_HTML")
 pico_set_program_version(Controle_Nivel_HTML "0.1")
