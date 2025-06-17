@@ -20,18 +20,18 @@
 #define WIFI_SSID "PRF"             //Alterar para o SSID da rede
 #define WIFI_PASSWORD "@hfs0800"    //Alterar para a senha da rede
 
-#define ADC_MIN 800     //Valor do potenciômetro quando tanque vazio
+#define ADC_MIN 800     //Valor do potenciômetro quando tanque vazio (FAZER TESTE NO TANQUE VAZIO PARA ACHAR O VALOR IDEAL)
 #define ADC_MAX 4096    //Valor do potenciômetro quando tanque cheio
 //Definição de GPIOs
-#define RELE_PIN 0     //Pino do rele
-#define ADC_NIVEL 0     //ADC do potenciometro
+#define RELE_PIN 18     //Pino do rele
+#define ADC_NIVEL 28     //ADC do potenciometro
 #define I2C_SDA 14      //Pino SDA - Dados
 #define I2C_SCL 15      //Pino SCL - Clock
 #define WS2812_PIN 7    //Pino do WS2812
 #define BUZZER_PIN 21   //Pino do buzzer
 #define BOTAO_A 5       //Pino do botao A
 #define LED_RED 13      //Pino do LED vermelho
-#define LED_GREEN 12    //Pino do LED verde
+#define LED_GREEN 12    //Pino do LED verde'
 #define IS_RGBW false   //Maquina PIO para RGBW
 
 uint16_t adc_nivel = 0;  //Variáveis para armazenar os valores do nivel lido no ADC do potenciometro
@@ -175,27 +175,29 @@ void tratar_requisicao_http(char *request){
         }
 }
 
-// Função que realiza a leitura e conversão do ADC para nível %
+//Função que realiza a leitura e conversão do ADC para nível %
 uint8_t ler_nivel_percentual(){
-    adc_select_input(ADC_NIVEL);
-    adc_nivel = adc_read();
+    adc_select_input(2);    //Seleciona o potenciometro, canal 2 da GPIO 28
+    adc_nivel = adc_read(); //Le o ADC e armazena na variavel global adc_nivel
 
+    //Garante que o ADC nao esteja fora dos limites
     if(adc_nivel <= ADC_MIN) return 0;
     if(adc_nivel >= ADC_MAX) return 100;
 
-    return((adc_nivel - ADC_MIN) * 100) / (ADC_MAX - ADC_MIN);
+    return((adc_nivel - ADC_MIN) * 100) / (ADC_MAX - ADC_MIN);  //Converte para porcentagem
 }
 
+//Função que atualiza o RGB
 void atualizar_rgb(uint8_t nivel, uint8_t lim_min){
-    if(nivel <= lim_min){
-        gpio_put(LED_RED, 1);
+    if(nivel <= lim_min){   //Se o nivel for menor que o limite minimo
+        gpio_put(LED_RED, 1);   //Liga o LED vermelho
         gpio_put(LED_GREEN, 0);
-    }else if(nivel < 50){
+    }else if(nivel < 50){   //Se o nivel for menor que 50
         gpio_put(LED_RED, 1);
-        gpio_put(LED_GREEN, 1);  // Amarelo
-    }else{
+        gpio_put(LED_GREEN, 1);  //Liga a cor amarela (vermelho + verde)
+    }else{  //Se o nivel for maior que 50
         gpio_put(LED_RED, 0);
-        gpio_put(LED_GREEN, 1);
+        gpio_put(LED_GREEN, 1);  //Liga o LED verde
     }
 }
 
@@ -218,17 +220,18 @@ void atualizar_display(uint8_t nivel, uint8_t lim_min, uint8_t lim_max, bool bom
     ssd1306_send_data(&ssd);
 }
 
-void verificar_buzzer(uint8_t nivel, uint8_t lim_min, uint8_t lim_max) {
-    static absolute_time_t ultimo_alarme = {0};
+//Função que verifica o buzzer
+void verificar_buzzer(uint8_t nivel, uint8_t lim_min, uint8_t lim_max){
+    static absolute_time_t ultimo_alarme = {0}; //Variavel para armazenar o ultimo alarme
 
-    if(nivel <= lim_min){
-        for(int i = 0; i < 3; i++){
+    if(nivel <= lim_min){   //Se o nivel for menor que o limite minimo
+        for(int i = 0; i < 3; i++){ //Repete 3 vezes
             pwm_set_enabled(buzzer_slice, true);
             sleep_ms(200);
             pwm_set_enabled(buzzer_slice, false);
             sleep_ms(200);
         }
-    }else if(nivel >= lim_max && absolute_time_diff_us(get_absolute_time(), ultimo_alarme) > 5000000){
+    }else if(nivel >= lim_max && absolute_time_diff_us(get_absolute_time(), ultimo_alarme) > 5000000){  //Se o nivel for maior que o limite maximo
         pwm_set_enabled(buzzer_slice, true);
         sleep_ms(100);
         pwm_set_enabled(buzzer_slice, false);
@@ -249,26 +252,27 @@ bool debounce_botao(uint gpio){
 
 //Função de interrupção com Debouncing
 void gpio_irq_handler(uint gpio, uint32_t events){
-    uint32_t current_time = to_ms_since_boot(get_absolute_time());
-    // Caso o botão A seja pressionado
+    uint32_t current_time = to_ms_since_boot(get_absolute_time());      //Variavel para armazenar o tempo atual
+    //Caso o botão A seja pressionado
     if(gpio == BOTAO_A && debounce_botao(BOTAO_A)){
-        acionar_bomba = true;
+        acionar_bomba = true;     //Variavel de verificação para ligar a bomba
     }
 }
 
+//Função que atualiza a matriz de leds
 void atualizar_matriz_leds(uint8_t nivel){
-    int faixa = nivel / 20;
-    if(faixa > 4) faixa = 4;
+    int faixa = nivel / 20;     //Divide o nivel por 20, verficando em qual faixa ele pertence, a cada 20% de nivel tem uma faixa
+    if(faixa > 4) faixa = 4;    //Limita o numero de faixas
 
-    uint8_t r = 0, g = 0, b = 0;
+    uint8_t r = 0, g = 0, b = 0;    //Definindo variaveis para cores RGB
 
     //Definindo cor da barra com base na faixa
-    if (nivel <= 20)        r = 25;  // vermelho
-    else if (nivel <= 40)   r = 13, g = 2;  // laranja
-    else if (nivel <= 60)   r = 25, g = 25;  // amarelo
-    else if (nivel <= 100)   g = 25;  // verde claro
+    if (nivel <= 20)        r = 25;  //Vermelho
+    else if (nivel <= 40)   r = 13, g = 2;  //Laranja
+    else if (nivel <= 60)   r = 25, g = 25;  //Amarelo
+    else if (nivel <= 100)   g = 25;  //Verde
 
-    set_one_led(r, g, b, faixa);
+    set_one_led(r, g, b, faixa);    //Envia os dados para a matriz
 }
 
 
@@ -276,30 +280,33 @@ int main(){
     inicializar_componentes();  //Inicia os componentes
     iniciar_webserver();        //Inicia o webserver
 
+    //Inicia a interrupção do botão A
     gpio_set_irq_enabled_with_callback(BOTAO_A, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);
     
+    //Definindo os limites de nivel padrao
     const uint8_t limite_minimo = 20;
     const uint8_t limite_maximo = 80;
-    bool bomba_ligada = false;
+
+    bool bomba_ligada = false;    //Variável para indicar se a bomba esta ligada
 
     while(true){
-        uint8_t nivel = ler_nivel_percentual();
-        atualizar_display(nivel, limite_minimo, limite_maximo, bomba_ligada);
-        atualizar_rgb(nivel, limite_minimo);
-        atualizar_matriz_leds(adc_nivel);
-        verificar_buzzer(nivel, limite_minimo, limite_maximo);
+        uint8_t nivel = ler_nivel_percentual(); //Le o ADC e armazena na variavel
+        atualizar_display(nivel, limite_minimo, limite_maximo, bomba_ligada);   //Atualiza o display com as informacoes atualizadas
+        atualizar_rgb(nivel, limite_minimo);                                    //Atualiza o RGB
+        atualizar_matriz_leds(adc_nivel);                                       //Atualiza a matriz de leds
+        verificar_buzzer(nivel, limite_minimo, limite_maximo);                  //Verifica o buzzer
 
-        if(acionar_bomba && nivel < limite_maximo){
-            gpio_put(RELE_PIN, 1);
-            bomba_ligada = true;
-            while(ler_nivel_percentual() < limite_maximo){
+        //Controle da bomba
+        if(acionar_bomba && nivel < limite_maximo){ //Se o botão A for pressionado e o nivel for menor que o limite maximo
+            gpio_put(RELE_PIN, 1);                  //Liga a bomba
+            bomba_ligada = true;                    //Indica que a bomba esta ligada
+            while(ler_nivel_percentual() < limite_maximo){  //Enquanto o nivel for menor que o limite maximo
                 sleep_ms(200);
             }
-            gpio_put(RELE_PIN, 0);
-            bomba_ligada = false;
-            acionar_bomba = false;
+            gpio_put(RELE_PIN, 0);                          //Desliga a bomba
+            bomba_ligada = false;                           //Indica que a bomba esta desligada
+            acionar_bomba = false;                          //Indica que o botão A foi liberado
         }
-
         sleep_ms(1000);
     }
     return 0;
