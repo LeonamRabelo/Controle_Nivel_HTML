@@ -22,6 +22,7 @@
 
 #define ADC_MIN 800     //Valor do potenciômetro quando tanque vazio (FAZER TESTE NO TANQUE VAZIO PARA ACHAR O VALOR IDEAL)
 #define ADC_MAX 4096    //Valor do potenciômetro quando tanque cheio
+#define CAPACIDADE_LITROS 100   //Capacidade do tanque em litros
 //Definição de GPIOs
 #define RELE_PIN 18     //Pino do rele
 #define ADC_NIVEL 28     //ADC do potenciometro
@@ -35,6 +36,7 @@
 #define IS_RGBW false   //Maquina PIO para RGBW
 
 uint16_t adc_nivel = 0;  //Variáveis para armazenar os valores do nivel lido no ADC do potenciometro
+uint16_t volume_litros = 0;
 uint volatile numero = 0;      //Variável para inicializar o numero com 0 (WS2812B)
 volatile bool acionar_bomba = false;    //Variável para indicar o modo de monitoramento
 uint buzzer_slice;  //Slice para o buzzer
@@ -203,21 +205,28 @@ void atualizar_rgb(uint8_t nivel, uint8_t lim_min){
 
 
 //Função que atualiza o display
-void atualizar_display(uint8_t nivel, uint8_t lim_min, uint8_t lim_max, bool bomba_ligada){
-    char linha1[32], linha2[32], linha3[32], linha4[32];
-    ssd1306_fill(&ssd, false);
+void atualizar_display(uint8_t nivel, uint8_t lim_min, uint8_t lim_max, bool bomba_ligada, uint16_t volume_litros){
+    char buffer[32];    //Buffer para armazenar as informacoes a serem exibidas no display
+    ssd1306_fill(&ssd, false);  //Limpa o display
+    
+    //Borda
+    ssd1306_rect(&ssd, 0, 0, 128, 64, true, false);
+    ssd1306_rect(&ssd, 1, 1, 128 - 2, 64 - 2, true, false);
+    ssd1306_rect(&ssd, 2, 2, 128 - 4, 64 - 4, true, false);
+    ssd1306_rect(&ssd, 3, 3, 128 - 6, 64 - 6, true, false);
 
-    sprintf(linha1, "Controle de Nivel");
-    sprintf(linha2, "Nivel: %d%%", nivel);
-    sprintf(linha3, "Min:%d%% Max:%d%%", lim_min, lim_max);
-    sprintf(linha4, "Bomba: %s", bomba_ligada ? "Ligada" : "Deslig.");
+    //Desenha as informacoes
+    ssd1306_draw_string(&ssd, "Controle de Nivel", 20, 0);
+    sprintf(buffer, "Nivel: %d%%", nivel);
+    ssd1306_draw_string(&ssd, buffer, 10, 10);
+    sprintf(buffer, "Volume: %dL", volume_litros);
+    ssd1306_draw_string(&ssd, buffer, 10, 25);
+    sprintf(buffer, "Min:%d%% Max:%d%%", lim_min, lim_max);
+    ssd1306_draw_string(&ssd, buffer, 10, 35);
+    sprintf(buffer, "Bomba: %s", bomba_ligada ? "Ligada" : "Deslig.");
+    ssd1306_draw_string(&ssd, buffer, 10, 45);
 
-    ssd1306_draw_string(&ssd, linha1, 10, 0);
-    ssd1306_draw_string(&ssd, linha2, 10, 16);
-    ssd1306_draw_string(&ssd, linha3, 10, 32);
-    ssd1306_draw_string(&ssd, linha4, 10, 48);
-
-    ssd1306_send_data(&ssd);
+    ssd1306_send_data(&ssd);    //Envia os dados para o display
 }
 
 //Função que verifica o buzzer
@@ -275,6 +284,10 @@ void atualizar_matriz_leds(uint8_t nivel){
     set_one_led(r, g, b, faixa);    //Envia os dados para a matriz
 }
 
+int converter_em_litros(int nivel_porcentagem){
+    volume_litros = (nivel_porcentagem * 100.0f) * CAPACIDADE_LITROS;
+    return volume_litros;
+}
 
 int main(){
     inicializar_componentes();  //Inicia os componentes
@@ -291,7 +304,8 @@ int main(){
 
     while(true){
         uint8_t nivel = ler_nivel_percentual(); //Le o ADC e armazena na variavel
-        atualizar_display(nivel, limite_minimo, limite_maximo, bomba_ligada);   //Atualiza o display com as informacoes atualizadas
+        uint8_t volume = converter_em_litros(nivel);
+        atualizar_display(nivel, limite_minimo, limite_maximo, bomba_ligada, volume);   //Atualiza o display com as informacoes atualizadas
         atualizar_rgb(nivel, limite_minimo);                                    //Atualiza o RGB
         atualizar_matriz_leds(adc_nivel);                                       //Atualiza a matriz de leds
         verificar_buzzer(nivel, limite_minimo, limite_maximo);                  //Verifica o buzzer
