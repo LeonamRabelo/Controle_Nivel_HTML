@@ -17,8 +17,8 @@
 #include "ws2812.pio.h"
 #include "inc/matriz_leds.h"
 
-#define WIFI_SSID "PRF"             //Alterar para o SSID da rede
-#define WIFI_PASSWORD "@hfs0800"    //Alterar para a senha da rede
+#define WIFI_SSID "A35 de Lucas"             //Alterar para o SSID da rede
+#define WIFI_PASSWORD "lucaslucas"    //Alterar para a senha da rede
 
 #define ADC_MIN 800     //Valor do potenciômetro quando tanque vazio (FAZER TESTE NO TANQUE VAZIO PARA ACHAR O VALOR IDEAL)
 #define ADC_MAX 4096    //Valor do potenciômetro quando tanque cheio
@@ -39,11 +39,70 @@ uint16_t adc_nivel = 0;  //Variáveis para armazenar os valores do nivel lido no
 uint16_t volume_litros = 0;
 uint volatile numero = 0;      //Variável para inicializar o numero com 0 (WS2812B)
 volatile bool acionar_bomba = false;    //Variável para indicar o modo de monitoramento
+bool bomba_ligada = false;    //Variável para indicar se a bomba esta ligada
 uint buzzer_slice;  //Slice para o buzzer
+const char HTML_BODY[] =
+"<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'/>"
+"<meta name='viewport' content='width=device-width, initial-scale=1.0'/>"
+"<title>Water Level Monitor</title>"
+"<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:sans-serif;background:#e0f7fa;color:#01579b;min-height:100vh}"
+"header{background:#1744cb;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap}"
+"header img{height:50px}.hdr-txt{display:flex;gap:20px;font-weight:bold;font-size:1.3rem;color:#fff}"
+"h1{font-size:2rem;margin:20px auto;text-align:center}.main{display:flex;gap:50px;flex-wrap:wrap;justify-content:center;padding:20px;max-width:1000px;margin:auto}"
+".tank,.pump{display:flex;flex-direction:column;align-items:center;max-width:320px;width:100%}"
+".tank-box{width:100%;aspect-ratio:1;border:4px solid #0288d1;border-radius:16px;background:#b3e5fc;position:relative;margin-bottom:15px;overflow:hidden}"
+".wave-wrapper{position:absolute;bottom:0;left:0;width:100%;height:100%;overflow:hidden}"
+".wave-container{width:100%;height:0;position:absolute;bottom:0;left:0;overflow:hidden;transition:height 0.5s ease-in-out}"
+".wave-container svg{width:100%;height:100%;position:absolute;bottom:0}"
+".w1{fill:#0288d1;opacity:1}.w2{fill:#4fc3f7;opacity:0.6}"
+".waves1,.waves2{display:flex;width:2400px;height:100%}"
+".waves1{animation:moveWaves 3s linear infinite}.waves2{animation:moveWaves 6s linear infinite}"
+"@keyframes moveWaves{0%{transform:translateX(0)}100%{transform:translateX(-1200px)}}"
+".tank p,.pump p{margin:5px 0;font-size:1.1rem;text-align:center}"
+".pump-box{width:100%;aspect-ratio:1;border-radius:16px;background:white;border:6px solid red;display:flex;justify-content:center;align-items:center;margin-bottom:10px;transition:border-color 0.3s}"
+".pump-box.on{border-color:green}.pump-box.on img{animation:shake 0.2s infinite}"
+".pump-box img{width:90%;object-fit:contain}.status.on{color:green;font-weight:bold}.status.off{color:red;font-weight:bold}"
+"button{padding:10px 20px;background:#0288d1;border:none;color:white;border-radius:8px;font-size:1rem;cursor:pointer;margin-top:10px}"
+"button:hover{background:#0277bd}#last-update{margin-top:30px;font-size:1.2rem;font-weight:bold;text-align:center}"
+"@keyframes shake{0%,100%{transform:translate(1px,-2px)}25%{transform:translate(-2px,1px)}50%{transform:translate(2px,-1px)}75%{transform:translate(-1px,2px)}}"
+"@media(max-width:768px){.main{flex-direction:column;align-items:center}.hdr-txt{justify-content:center;width:100%;font-size:1.1rem;margin-top:10px}header{flex-direction:column;align-items:center}}"
+"</style></head><body>"
+"<header><img src='https://i.imgur.com/wVCmCfn.png' alt='RESTIC Logo'/>"
+"<div class='hdr-txt'><span>RESTIC 37</span><span>CEPEDI</span></div></header>"
+"<h1>Water Level Monitoring System</h1><div class='main'>"
+"<div class='tank'><div class='tank-box'>"
+"<div class='wave-wrapper'><div class='wave-container' id='wave'>"
+"<svg viewBox='0 0 1200 200' preserveAspectRatio='xMidYMax slice'>"
+"<g class='waves1'><path class='w1' d='M0,100 C300,50 900,150 1200,100 V200 H0 Z'/>"
+"<path class='w1' d='M1200,100 C1500,50 2100,150 2400,100 V200 H1200 Z'/></g>"
+"<g class='waves2'><path class='w2' d='M0,100 C300,50 900,150 1200,100 V200 H0 Z'/>"
+"<path class='w2' d='M1200,100 C1500,50 2100,150 2400,100 V200 H1200 Z'/></g>"
+"</svg></div></div></div>"
+"<p><strong>Level:</strong> <span id='level'>--%</span></p>"
+"<p><strong>Volume:</strong> <span id='volume'>--L</span></p></div>"
+"<div class='pump'><div id='pump-box' class='pump-box'><img src='https://i.imgur.com/sucmfnd.png' alt='Water Pump'></div>"
+"<p><strong>Pump:</strong> <span id='pump-status' class='status'>--</span></p>"
+"<button id='toggle-pump'>Toggle Pump</button></div></div>"
+"<p id='last-update'>Last update: --:--</p>"
+"<script>"
+"function togglePump(){fetch('/toggle',{method:'POST'})}"
+"function atualizar(){fetch('/data').then(res=>res.json()).then(data=>{"
+"const level = data.lvl;"
+"document.getElementById('wave').style.height = `${level*2}%`;"
+"document.getElementById('level').textContent=`${level}%`;"
+"document.getElementById('volume').textContent=`${(level*10).toFixed(0)}L`;"
+"const pump=document.getElementById('pump-status'),box=document.getElementById('pump-box'),isOn=data.pump;"
+"pump.textContent=isOn?'On':'Off';pump.className='status '+(isOn?'on':'off');"
+"box.className='pump-box '+(isOn?'on':'');"
+"document.getElementById('last-update').textContent='Last update: '+new Date().toLocaleTimeString();"
+"}).catch(e=>console.error('Erro ao atualizar:',e))}"
+"setInterval(atualizar,1000);atualizar();"
+"document.getElementById('toggle-pump').addEventListener('click',togglePump);"
+"</script></body></html>";
 
 //Prototipagem
 static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err);
-static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err);
+static err_t http_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err);
 void tratar_requisicao_http(char *request);
 
 //////////////////////////////////////////BASE PRONTA//////////////////////////////////////////////////////////////////////
@@ -130,41 +189,59 @@ void iniciar_webserver(){
 
 //Aceita conexão TCP
 static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err){
-    tcp_recv(newpcb, tcp_server_recv);  //Recebe dados da conexao
+    tcp_recv(newpcb, http_recv);  //Recebe dados da conexao
     return ERR_OK;
 }
 
 //Requisição HTTP
-static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err){
-    if(!p) return tcp_close(tpcb);  // Se nao houver dados, fecha a conexao
+static err_t http_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err) {
+    if (!p) {
+        tcp_close(tpcb);
+        return ERR_OK;
+    }
 
-    char *request = (char *)malloc(p->len + 1); // Aloca memória para o request
-    memcpy(request, p->payload, p->len);        // Copia o request
-    request[p->len] = '\0';                     // Terminador de string
-    tratar_requisicao_http(request);            // Tratar comandos HTTP
+    char *req = (char *)p->payload;
 
-    bool atividade = abs(adc_nivel - 2048) > 500;
+    const char *header_html =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: text/html\r\n"
+        "Connection: close\r\n"
+        "\r\n";
 
-    char html[2048];
-    snprintf(html, sizeof(html),
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n"
-        "<!DOCTYPE html><html><head>"
-        "<meta charset='UTF-8'><title>TITULO</title>"
-        "<style>"
-        "body {background:#46dd73;font-family:sans-serif;text-align:center;margin-top:30px;}"
-        "h1,h2,h3,h4 {margin:10px;}"
-        ".btns {display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin-top:20px;}"
-        "button {background:lightgray;font-size:20px;padding:10px 20px;border-radius:8px;border:none;}"
-        "input[type=range] {width: 40%%;}"
-        "</style></head><body>"
-        "<h1>NIVEL TITULO</h1>"
-        "</body></html>"
-    );
+    const char *header_json =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: application/json\r\n"
+        "Access-Control-Allow-Origin: *\r\n"
+        "Connection: close\r\n"
+        "\r\n";
 
-    tcp_write(tpcb, html, strlen(html), TCP_WRITE_FLAG_COPY);
-    tcp_output(tpcb);
-    free(request);
+    if (p->len >= 6 && strncmp(req, "GET / ", 6) == 0) {
+        tcp_write(tpcb, header_html, strlen(header_html), TCP_WRITE_FLAG_COPY);
+        tcp_write(tpcb, HTML_BODY, strlen(HTML_BODY), TCP_WRITE_FLAG_COPY);
+    } else if (p->len >= 9 && strncmp(req, "GET /data", 9) == 0) {
+        char json[64];
+        snprintf(json, sizeof(json), "{\"lvl\":%d,\"pump\":%s}", volume_litros, bomba_ligada ? "true" : "false");
+        tcp_write(tpcb, header_json, strlen(header_json), TCP_WRITE_FLAG_COPY);
+        tcp_write(tpcb, json, strlen(json), TCP_WRITE_FLAG_COPY);
+    } else if (strstr(req, "POST /toggle") != NULL) {
+        bomba_ligada = !bomba_ligada;
+        char json[64];
+        snprintf(json, sizeof(json), "{\"lvl\":%d,\"pump\":%s}", volume_litros, bomba_ligada ? "true" : "false");
+        tcp_write(tpcb, header_json, strlen(header_json), TCP_WRITE_FLAG_COPY);
+        tcp_write(tpcb, json, strlen(json), TCP_WRITE_FLAG_COPY);
+    } else {
+        const char *not_found =
+            "HTTP/1.1 404 Not Found\r\n"
+            "Content-Type: text/plain\r\n"
+            "Connection: close\r\n"
+            "\r\n"
+            "Recurso não encontrado.";
+        tcp_write(tpcb, not_found, strlen(not_found), TCP_WRITE_FLAG_COPY);
+    }
+
+    tcp_recved(tpcb, p->tot_len);
     pbuf_free(p);
+    tcp_close(tpcb);  // Fecha a conexão após envio da resposta
     return ERR_OK;
 }
 
@@ -292,6 +369,10 @@ int converter_em_litros(int nivel_porcentagem){
 int main(){
     inicializar_componentes();  //Inicia os componentes
     iniciar_webserver();        //Inicia o webserver
+    uint8_t *ip = (uint8_t *)&(cyw43_state.netif[0].ip_addr.addr);
+    char ip_str[24];
+    snprintf(ip_str, sizeof(ip_str), "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
+    printf("IP: %s\n", ip_str);  //Exibe o IP no serial monitor
 
     //Inicia a interrupção do botão A
     gpio_set_irq_enabled_with_callback(BOTAO_A, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);
@@ -299,8 +380,6 @@ int main(){
     //Definindo os limites de nivel padrao
     const uint8_t limite_minimo = 20;
     const uint8_t limite_maximo = 80;
-
-    bool bomba_ligada = false;    //Variável para indicar se a bomba esta ligada
 
     while(true){
         uint8_t nivel = ler_nivel_percentual(); //Le o ADC e armazena na variavel
