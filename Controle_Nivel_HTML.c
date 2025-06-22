@@ -17,8 +17,8 @@
 #include "ws2812.pio.h"
 #include "inc/matriz_leds.h"
 
-#define WIFI_SSID ""   // Alterar para o SSID da rede
-#define WIFI_PASSWORD "" // Alterar para a senha da rede
+#define WIFI_SSID "A35 de Lucas"   // Alterar para o SSID da rede
+#define WIFI_PASSWORD "lucaslucas" // Alterar para a senha da rede
 
 #define ADC_MIN 1600           // Valor do potenciômetro quando tanque vazio 
 #define ADC_MAX 2100          // Valor do potenciômetro quando tanque cheio
@@ -41,64 +41,86 @@ uint volatile numero = 0;            // Variável para inicializar o numero com 
 volatile bool acionar_bomba = false; // Variável para indicar o modo de monitoramento
 bool bomba_ligada = false;           // Variável para indicar se a bomba esta ligada
 uint buzzer_slice;                   // Slice para o buzzer
+uint8_t limite_minimo = 20;   // Limite minimo de nivel
+uint8_t limite_maximo = 80;   // Limite maximo de nivel
+
 const char HTML_BODY[] =
-    "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'/>"
-    "<meta name='viewport' content='width=device-width, initial-scale=1.0'/>"
-    "<title>Water Level Monitor</title>"
-    "<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:sans-serif;background:#e0f7fa;color:#01579b;min-height:100vh}"
-    "header{background:#1744cb;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap}"
-    "header img{height:50px}.hdr-txt{display:flex;gap:20px;font-weight:bold;font-size:1.3rem;color:#fff}"
-    "h1{font-size:2rem;margin:20px auto;text-align:center}.main{display:flex;gap:50px;flex-wrap:wrap;justify-content:center;padding:20px;max-width:1000px;margin:auto}"
-    ".tank,.pump{display:flex;flex-direction:column;align-items:center;max-width:320px;width:100%}"
-    ".tank-box{width:100%;aspect-ratio:1;border:4px solid #0288d1;border-radius:16px;background:#b3e5fc;position:relative;margin-bottom:15px;overflow:hidden}"
-    ".wave-wrapper{position:absolute;bottom:0;left:0;width:100%;height:100%;overflow:hidden}"
-    ".wave-container{width:100%;height:0;position:absolute;bottom:0;left:0;overflow:hidden;transition:height 0.5s ease-in-out}"
-    ".wave-container svg{width:100%;height:100%;position:absolute;bottom:0}"
-    ".w1{fill:#0288d1;opacity:1}.w2{fill:#4fc3f7;opacity:0.6}"
-    ".waves1,.waves2{display:flex;width:2400px;height:100%}"
-    ".waves1{animation:moveWaves 3s linear infinite}.waves2{animation:moveWaves 6s linear infinite}"
-    "@keyframes moveWaves{0%{transform:translateX(0)}100%{transform:translateX(-1200px)}}"
-    ".tank p,.pump p{margin:5px 0;font-size:1.1rem;text-align:center}"
-    ".pump-box{width:100%;aspect-ratio:1;border-radius:16px;background:white;border:6px solid red;display:flex;justify-content:center;align-items:center;margin-bottom:10px;transition:border-color 0.3s}"
-    ".pump-box.on{border-color:green}.pump-box.on img{animation:shake 0.2s infinite}"
-    ".pump-box img{width:90%;object-fit:contain}.status.on{color:green;font-weight:bold}.status.off{color:red;font-weight:bold}"
-    "button{padding:10px 20px;background:#0288d1;border:none;color:white;border-radius:8px;font-size:1rem;cursor:pointer;margin-top:10px}"
-    "button:hover{background:#0277bd}#last-update{margin-top:30px;font-size:1.2rem;font-weight:bold;text-align:center}"
-    "@keyframes shake{0%,100%{transform:translate(1px,-2px)}25%{transform:translate(-2px,1px)}50%{transform:translate(2px,-1px)}75%{transform:translate(-1px,2px)}}"
-    "@media(max-width:768px){.main{flex-direction:column;align-items:center}.hdr-txt{justify-content:center;width:100%;font-size:1.1rem;margin-top:10px}header{flex-direction:column;align-items:center}}"
-    "</style></head><body>"
-    "<header><img src='https://i.imgur.com/wVCmCfn.png' alt='RESTIC Logo'/>"
-    "<div class='hdr-txt'><span>RESTIC 37</span><span>CEPEDI</span></div></header>"
-    "<h1>Water Level Monitoring System</h1><div class='main'>"
-    "<div class='tank'><div class='tank-box'>"
-    "<div class='wave-wrapper'><div class='wave-container' id='wave'>"
-    "<svg viewBox='0 0 1200 200' preserveAspectRatio='xMidYMax slice'>"
-    "<g class='waves1'><path class='w1' d='M0,100 C300,50 900,150 1200,100 V200 H0 Z'/>"
-    "<path class='w1' d='M1200,100 C1500,50 2100,150 2400,100 V200 H1200 Z'/></g>"
-    "<g class='waves2'><path class='w2' d='M0,100 C300,50 900,150 1200,100 V200 H0 Z'/>"
-    "<path class='w2' d='M1200,100 C1500,50 2100,150 2400,100 V200 H1200 Z'/></g>"
-    "</svg></div></div></div>"
-    "<p><strong>Level:</strong> <span id='level'>--%</span></p>"
-    "<p><strong>Volume:</strong> <span id='volume'>--L</span></p></div>"
-    "<div class='pump'><div id='pump-box' class='pump-box'><img src='https://i.imgur.com/sucmfnd.png' alt='Water Pump'></div>"
-    "<p><strong>Pump:</strong> <span id='pump-status' class='status'>--</span></p>"
-    "<button id='toggle-pump'>Toggle Pump</button></div></div>"
-    "<p id='last-update'>Last update: --:--</p>"
-    "<script>"
-    "function togglePump(){fetch('/toggle',{method:'POST'})}"
-    "function atualizar(){fetch('/data').then(res=>res.json()).then(data=>{"
-    "const level = data.lvl;"
-    "document.getElementById('wave').style.height = `${level*2}%`;"
-    "document.getElementById('level').textContent=`${level}%`;"
-    "document.getElementById('volume').textContent=`${(level*10).toFixed(0)}L`;"
-    "const pump=document.getElementById('pump-status'),box=document.getElementById('pump-box'),isOn=data.pump;"
-    "pump.textContent=isOn?'On':'Off';pump.className='status '+(isOn?'on':'off');"
-    "box.className='pump-box '+(isOn?'on':'');"
-    "document.getElementById('last-update').textContent='Last update: '+new Date().toLocaleTimeString();"
-    "}).catch(e=>console.error('Erro ao atualizar:',e))}"
-    "setInterval(atualizar,1000);atualizar();"
-    "document.getElementById('toggle-pump').addEventListener('click',togglePump);"
-    "</script></body></html>";
+"<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'/>"
+"<meta name='viewport' content='width=device-width, initial-scale=1.0'/>"
+"<title>Water Level Monitor</title>"
+"<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:sans-serif;background:#e0f7fa;color:#01579b;min-height:100vh}"
+"header{background:#1744cb;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap}"
+"header img{height:50px}.hdr-txt{display:flex;gap:20px;font-weight:bold;font-size:1.3rem;color:#fff}"
+"h1{font-size:2rem;margin:20px auto;text-align:center}.main{display:flex;gap:50px;flex-wrap:wrap;justify-content:center;padding:20px;max-width:1000px;margin:auto}"
+".tank,.pump{display:flex;flex-direction:column;align-items:center;max-width:320px;width:100%}"
+".tank-box{width:100%;aspect-ratio:1;border:4px solid #0288d1;border-radius:16px;background:#b3e5fc;position:relative;margin-bottom:15px;overflow:hidden}"
+".wave-wrapper{position:absolute;bottom:0;left:0;width:100%;height:100%;overflow:hidden}"
+".wave-container{width:100%;height:0;position:absolute;bottom:0;left:0;overflow:hidden;transition:height 0.5s ease-in-out}"
+".wave-container svg{width:100%;height:100%;position:absolute;bottom:0}"
+".w1{fill:#0288d1;opacity:1}.w2{fill:#4fc3f7;opacity:0.6}"
+".waves1,.waves2{display:flex;width:2400px;height:100%}"
+".waves1{animation:moveWaves 3s linear infinite}.waves2{animation:moveWaves 6s linear infinite}"
+"@keyframes moveWaves{0%{transform:translateX(0)}100%{transform:translateX(-1200px)}}"
+".tank p,.pump p{margin:5px 0;font-size:1.1rem;text-align:center}"
+".pump-box{width:100%;aspect-ratio:1;border-radius:16px;background:white;border:6px solid red;display:flex;justify-content:center;align-items:center;margin-bottom:10px;transition:border-color 0.3s}"
+".pump-box.on{border-color:green}.pump-box.on img{animation:shake 0.2s infinite}"
+".pump-box img{width:90%;object-fit:contain}.status.on{color:green;font-weight:bold}.status.off{color:red;font-weight:bold}"
+"button{padding:10px 20px;background:#0288d1;border:none;color:white;border-radius:8px;font-size:1rem;cursor:pointer;margin-top:10px}"
+"button:hover{background:#0277bd}#last-update{margin-top:30px;font-size:1.2rem;font-weight:bold;text-align:center}"
+"input[type=number]{padding:5px;margin:5px;border-radius:5px;border:1px solid #0288d1;width:80px;text-align:center}"
+"#limits{display:flex;justify-content:center;gap:15px;align-items:center;margin-top:30px;flex-wrap:wrap}"
+"#limits-container{text-align:center;margin-top:20px}"
+"#submit-limits{margin-top:10px}"
+"@keyframes shake{0%,100%{transform:translate(1px,-2px)}25%{transform:translate(-2px,1px)}50%{transform:translate(2px,-1px)}75%{transform:translate(-1px,2px)}}"
+"@media(max-width:768px){.main{flex-direction:column;align-items:center}.hdr-txt{justify-content:center;width:100%;font-size:1.1rem;margin-top:10px}header{flex-direction:column;align-items:center}}"
+"</style></head><body>"
+"<header><img src='https://i.imgur.com/wVCmCfn.png' alt='RESTIC Logo'/>"
+"<div class='hdr-txt'><span>RESTIC 37</span><span>CEPEDI</span></div></header>"
+"<h1>Water Level Monitoring System</h1><div class='main'>"
+"<div class='tank'><div class='tank-box'>"
+"<div class='wave-wrapper'><div class='wave-container' id='wave'>"
+"<svg viewBox='0 0 1200 200' preserveAspectRatio='xMidYMax slice'>"
+"<g class='waves1'><path class='w1' d='M0,100 C300,50 900,150 1200,100 V200 H0 Z'/>"
+"<path class='w1' d='M1200,100 C1500,50 2100,150 2400,100 V200 H1200 Z'/></g>"
+"<g class='waves2'><path class='w2' d='M0,100 C300,50 900,150 1200,100 V200 H0 Z'/>"
+"<path class='w2' d='M1200,100 C1500,50 2100,150 2400,100 V200 H1200 Z'/></g>"
+"</svg></div></div></div>"
+"<p><strong>Level:</strong> <span id='level'>--%</span></p>"
+"<p><strong>Volume:</strong> <span id='volume'>--L</span></p></div>"
+"<div class='pump'><div id='pump-box' class='pump-box'><img src='https://i.imgur.com/sucmfnd.png' alt='Water Pump'></div>"
+"<p><strong>Pump:</strong> <span id='pump-status' class='status'>--</span></p>"
+"<button id='toggle-pump'>Toggle Pump</button></div></div>"
+"</div>"
+
+"<div id='limits-container'>"
+"<div id='limits'>"
+"<label for='min-value'><strong>Min (%):</strong></label><input type='number' id='min-value' value='20' min='0' max='100'>"
+"<label for='max-value'><strong>Max (%):</strong></label><input type='number' id='max-value' value='80' min='0' max='100'>"
+"</div>"
+"<button id='submit-limits'>Alterar Limites</button>"
+"</div>"
+
+"<script>"
+"function togglePump(){fetch('/toggle',{method:'POST'})}"
+"function atualizar(){fetch('/data').then(res=>res.json()).then(data=>{"
+"const level = data.lvl;"
+"document.getElementById('wave').style.height = `${level*2}%`;"
+"document.getElementById('level').textContent=`${level}%`;"
+"document.getElementById('volume').textContent=`${(level*0.04).toFixed(2)}L`;"
+"const pump=document.getElementById('pump-status'),box=document.getElementById('pump-box'),isOn=data.pump;"
+"pump.textContent=isOn?'On':'Off';pump.className='status '+(isOn?'on':'off');"
+"box.className='pump-box '+(isOn?'on':'');"
+"}).catch(e=>console.error('Erro ao atualizar:',e))}"
+"document.getElementById('toggle-pump').addEventListener('click',togglePump);"
+"document.getElementById('submit-limits').addEventListener('click',()=>{"
+"const min=parseInt(document.getElementById('min-value').value);"
+"const max=parseInt(document.getElementById('max-value').value);"
+"if(min>=0&&max<=100&&min<=max){"
+"fetch('/set-limits',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`min=${min}&max=${max}`});"
+"}else{alert('Valores inválidos! Certifique-se de que 0 ≤ min ≤ max ≤ 100.');}"
+"});"
+"setInterval(atualizar,1000);atualizar();"
+"</script></body></html>";
 
 // Prototipagem
 static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err);
@@ -236,11 +258,36 @@ static err_t http_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t er
     }
     else if (strstr(req, "POST /toggle") != NULL)
     {
-        bomba_ligada = !bomba_ligada;
+        acionar_bomba = true;
         char json[64];
         snprintf(json, sizeof(json), "{\"lvl\":%d,\"pump\":%s}", volume_litros, bomba_ligada ? "true" : "false");
         tcp_write(tpcb, header_json, strlen(header_json), TCP_WRITE_FLAG_COPY);
         tcp_write(tpcb, json, strlen(json), TCP_WRITE_FLAG_COPY);
+    }
+    else if (strstr(req, "POST /set-limits") != NULL)
+    {
+        // Procura os valores de min e max no corpo da requisição
+        char *body = strstr(req, "\r\n\r\n");
+        if (body) {
+            body += 4; // Pula os \r\n\r\n
+
+            int min = -1, max = -1;
+            sscanf(body, "min=%d&max=%d", &min, &max);
+            max /= 10;
+            if (min >= 0 && max <= 100 && min <= max) {
+                limite_minimo = (uint8_t)min;
+                limite_maximo = (uint8_t)max;
+            }
+        }
+
+        const char *ok_response =
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: text/plain\r\n"
+            "Access-Control-Allow-Origin: *\r\n"
+            "Connection: close\r\n"
+            "\r\n"
+            "Limites atualizados.";
+        tcp_write(tpcb, ok_response, strlen(ok_response), TCP_WRITE_FLAG_COPY);
     }
     else
     {
@@ -418,10 +465,6 @@ int main()
 
     // Inicia a interrupção do botão A
     gpio_set_irq_enabled_with_callback(BOTAO_A, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);
-
-    // Definindo os limites de nivel padrao
-    const uint8_t limite_minimo = 20;
-    const uint8_t limite_maximo = 80;
 
     while (true)
     {
