@@ -17,8 +17,8 @@
 #include "ws2812.pio.h"
 #include "inc/matriz_leds.h"
 
-#define WIFI_SSID "A35 de Lucas"   // Alterar para o SSID da rede
-#define WIFI_PASSWORD "lucaslucas" // Alterar para a senha da rede
+#define WIFI_SSID ""   // Alterar para o SSID da rede
+#define WIFI_PASSWORD "" // Alterar para a senha da rede
 
 #define ADC_MIN 1600           // Valor do potenciômetro quando tanque vazio 
 #define ADC_MAX 2100          // Valor do potenciômetro quando tanque cheio
