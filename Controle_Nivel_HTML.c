@@ -125,7 +125,6 @@ const char HTML_BODY[] =
 // Prototipagem
 static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err);
 static err_t http_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err);
-void tratar_requisicao_http(char *request);
 
 //////////////////////////////////////////BASE PRONTA//////////////////////////////////////////////////////////////////////
 // Display SSD1306
@@ -304,17 +303,6 @@ static err_t http_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t er
     pbuf_free(p);
     tcp_close(tpcb); // Fecha a conexão após envio da resposta
     return ERR_OK;
-}
-
-// Trata a requisição HTTP
-void tratar_requisicao_http(char *request)
-{
-    if (strstr(request, "GET /topico"))
-    { // Verifica se é o request "area_prev"
-    }
-    else if (strstr(request, "GET /topico2"))
-    { // Verifica se é o request "area_next"
-    }
 }
 
 // Função que realiza a leitura e conversão do ADC para nível %
